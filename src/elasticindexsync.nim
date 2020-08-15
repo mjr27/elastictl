@@ -1,41 +1,62 @@
-import os
+import asyncdispatch
 import strformat
 import logging
-import httpcore
 import strutils
+import yaml
 
-import ./elasticclient
+import ./elastic/client
+import ./output/formatted
+import ./cl_parser
 
-const ELASTIC_USER = "elastic";
-const ELASTIC_PASSWORD = "1Y2zLwmDE87uCpbjzph8pnEZ1b4kWvqz";
-const SNAPSHOT_REPOSITORY = "backup";
-const TARGET_INDEX_NAME = "egw";
+# const ELASTIC_USER = "elastic";
+# const ELASTIC_PASSWORD = "1Y2zLwmDE87uCpbjzph8pnEZ1b4kWvqz";
+# const SNAPSHOT_REPOSITORY = "backup";
+# const TARGET_INDEX_NAME = "egw";
 
-proc init() = 
-  addHandler(newConsoleLogger(lvlInfo))
+proc initLogging(logLevel: Level) =
+    addHandler(newConsoleLogger())
+    setLogFilter(logLevel)
 
-proc run() = 
-  try:
-    var host = newHost(user=ELASTIC_USER, password=ELASTIC_PASSWORD)
-    var client = newClient(host, repository=SNAPSHOT_REPOSITORY, index=TARGET_INDEX_NAME)
-    let indexList = client.getIndexList()
-    let snapshotList = client.getSnapshotList()
-    info &"Index list: {indexList}"
-    info &"Snapshot list: {snapshotList}"
-    for snapshot in snapshotList:
-      if not indexList.contains(snapshot):
-        info("Restoring ", snapshot)
-        discard restoreSnapshot(client, snapshot)
-  except ElasticHttpError as e:
-    error("Error while updating: ", e.msg.strip)
+proc listIndices(client: ElasticClient): seq[ElasticIndex] =
+    waitFor(client.getIndexList());
 
-proc finalize() = discard
+proc listRepositories(client: ElasticClient): seq[ElasticRepository] =
+    waitFor(client.getRepositoryList());
+
+proc listSnapshots(client: ElasticClient, repository: string): seq[
+        ElasticSnapshot] =
+    waitFor(client.getSnapshotList(repository));
+
 
 when isMainModule:
-  init()
-  while true:
-    run()
-    sleep 500
-    break
-  finalize()
+    when true:
+        let command = parseCommandLine()
+
+        initLogging(command.logLevel)
+        var elastic = newClient(command.host) # , repository=SNAPSHOT_REPOSITORY, index=TARGET_INDEX_NAME
+        case command.kind:
+        of lsIndices:
+            formatTableResult(elastic.listIndices(), command.format)
+        of lsRepos:
+            formatTableResult(elastic.listRepositories(), command.format)
+        of lsSnapshots:
+            formatTableResult(elastic.listSnapshots(command.repository),
+                command.format)
+        of rmAlias:
+            if waitFor(elastic.removeAlias(command.rmAliasName)):
+                info &"Alias {command.rmAliasName} deleted"
+            else:
+                warn &"Alias {command.rmAliasName} was not found"
+        of rmIndex:
+            if waitFor(elastic.removeIndex(command.rmIndexName)):
+                info &"Index {command.rmIndexName} deleted"
+            else:
+                warn &"Index {command.rmIndexName} was not found"
+        # of CommandKind.lsSnapshots: echo "ls snapshots ", command.format
+        else: echo "unknown"
+    else:
+        import cligen
+        proc lsIndexes() =
+            echo "done"
+        dispatchMulti [lsIndexes]
 
