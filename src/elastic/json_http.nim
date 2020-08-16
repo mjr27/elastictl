@@ -8,14 +8,11 @@ import uri
 
 type
     JsonHttpHost* = object of RootObj
-        root: Uri
-        user: string
-        password: string
+        root*: Uri
+        user*: string
+        password*: string
     JsonHttpResponse* = JsonNode
-    JsonHttpError* = object of CatchableError
-        statusCode: HttpCode
-        error: string
-        body: JsonHttpResponse
+    JsonHttpError* = object of IOError
 
 
 proc auth(host: JsonHttpHost): string =

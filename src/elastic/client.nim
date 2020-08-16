@@ -4,6 +4,7 @@ import strformat
 import strutils
 import tables
 import times
+import uri
 import ./json_http
 
 type
@@ -83,7 +84,7 @@ proc getIndexList*(client: ElasticClient): Future[seq[ElasticIndex]] {.async.} =
     var returnValue = newSeq[ElasticIndex](0)
     let
         response = await client.host.get(
-          "_cat/indices?bytes=b&h=index,health,pri.store.size,creation.date")
+            "_cat/indices?bytes=b&h=index,health,pri.store.size,creation.date")
         indexAliases = await client.getAliases()
 
     if response == nil:
@@ -131,12 +132,12 @@ proc restoreSnapshot*(client: ElasticClient, repository: string,
     discard client.host.delete(snapshotName)
 
     let json = %* {
-      "indices": indexName,
-      "ignore_unavailable": true,
-      "include_global_state": false,
-      "rename_pattern": "^.*$",
-      "rename_replacement": snapshotName,
-      "include_aliases": false
+        "indices": indexName,
+        "ignore_unavailable": true,
+        "include_global_state": false,
+        "rename_pattern": "^.*$",
+        "rename_replacement": snapshotName,
+        "include_aliases": false
     };
     echo $(await client.host.post(&"_snapshot/{repository}/{snapshotName}/_restore", json))
     return true
@@ -158,3 +159,9 @@ proc removeIndex*(client: ElasticClient, name: string): Future[bool] {.async.} =
     discard await client.host.delete(&"/{name}")
     return true
 
+proc removeSnapshot*(client: ElasticClient, repository: string, snapshot: string): Future[bool] {.async.} =
+    let
+        encodedRepo = encodeUrl repository
+        encodedName = encodeUrl snapshot
+    discard await client.host.delete(&"/_snapshot/{encodedRepo}/{encodedName}")
+    return true
