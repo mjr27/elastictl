@@ -1,89 +1,75 @@
 import asyncdispatch
-import strformat
 import logging
-import strutils
+import strformat
 import uri
-import ./elastic/json_http
 import yaml
 
-import ./elastic/client
+import elastic/elastic
 import ./output/formatted
 import ./cl_parser
-
-# const ELASTIC_USER = "elastic";
-# const ELASTIC_PASSWORD = "1Y2zLwmDE87uCpbjzph8pnEZ1b4kWvqz";
-# const SNAPSHOT_REPOSITORY = "backup";
-# const TARGET_INDEX_NAME = "egw";
 
 proc initLogging(logLevel: Level) =
     addHandler(newConsoleLogger(useStderr = true))
     setLogFilter(logLevel)
 
-proc listIndices(client: ElasticClient): seq[ElasticIndex] =
-    waitFor(client.getIndexList());
-
-proc listRepositories(client: ElasticClient): seq[ElasticRepository] =
-    waitFor(client.getRepositoryList());
-
-proc listSnapshots(client: ElasticClient, repository: string): seq[
-        ElasticSnapshot] =
-    waitFor(client.getSnapshotList(repository));
-
 proc representObject*(value: JsonHttpHost, ts: TagStyle = tsNone,
     c: SerializationContext, tag: TagId) {.raises: [].}  =
-    echo $(value.root)
     c.put(scalarEvent($(value.root), tag, yAnchorNone))
 
-proc processCommand(command: ConsoleCommand) = 
-    var elastic = newClient(command.host) # , repository=SNAPSHOT_REPOSITORY, index=TARGET_INDEX_NAME
+proc executeCommand(elastic: ElasticClient, command: ConsoleCommand) : Future[void] {.async.} = 
     case command.kind:
-    of lsIndices:
-        formatTableResult(elastic.listIndices(), command.outputFormat)
-    of lsRepos:
-        formatTableResult(elastic.listRepositories(), command.outputFormat)
-    of lsSnapshots:
-        formatTableResult(elastic.listSnapshots(command.repository),
-            command.outputFormat)
-    of rmAlias:
-        if waitFor(elastic.removeAlias(command.rmAliasName)):
+    of CommandListIndices:
+        formatTableResult(await elastic.listIndices(), command.outputFormat)
+    of CommandListRepositories:
+        formatTableResult(await elastic.listRepositories(), command.outputFormat)
+    of CommandListSnapshots:
+        formatTableResult(await elastic.listSnapshots(command.repository), command.outputFormat)
+    of CommandRemoveAlias:
+        if await elastic.removeAlias(command.rmAliasName):
             info &"Alias {command.rmAliasName} deleted"
         else:
             warn &"Alias {command.rmAliasName} was not found"
-    of rmIndex:
-        if waitFor(elastic.removeIndex(command.rmIndexName)):
+    of CommandRemoveIndex:
+        if await elastic.removeIndex(command.rmIndexName):
             info &"Index {command.rmIndexName} deleted"
         else:
             warn &"Index {command.rmIndexName} was not found"
-    of rmSnapshot:
-        if waitFor(elastic.removeSnapshot(command.rmSnapshotRepo, command.rmSnapshotName)):
+    of CommandRemoveSnapshot:
+        if await elastic.removeSnapshot(command.repository, command.rmSnapshotName):
             info &"Snapshot {command.rmSnapshotName} deleted"
         else:
-            warn &"Snapshot {command.rmSnapshotName} was not found in {command.rmSnapshotRepo}"
-    # of CommandKind.lsSnapshots: echo "ls snapshots ", command.format
-    else: 
+            warn &"Snapshot {command.rmSnapshotName} was not found in {command.repository}"
+    of CommandBackup:
+        await elastic.backupIndices(
+            command.backupIndices, 
+            command.repository, 
+            command.backupSnapshot)
+        info &"Snapshot {command.repository}/{command.backupSnapshot} created successfully"
+    of CommandRestore:
+        let target = if command.restoreTargetIndexName == "" : command.restoreSnapshot else: command.restoreTargetIndexName
+        await elastic.restoreIndex(
+            command.repository, 
+            command.restoreSnapshot,
+            command.restoreSnapshotIndexName,
+            target)
+        warn &"Snapshot {command.repository}/{command.restoreSnapshot}[{command.restoreSnapshotIndexName}] was successfully restored to '{target}'"
+    of CommandMakeAlias: 
+        await elastic.makeAlias(command.aliasName, command.aliasIndex)
+        warn &"Alias {command.aliasName} now points to {command.aliasIndex}"
+    of CommandUnknown: 
         logging.error "Unknown command"
-        echo yaml.dump(command)
         failWithHelp()
 
+proc main() = 
+    let command = parseCommandLine()
 
-when isMainModule:
-    when true:
-        let command = parseCommandLine()
+    initLogging(command.logLevel)
+    try:
+        var elastic = newClient(command.host, command.wait) # , repository=SNAPSHOT_REPOSITORY, index=TARGET_INDEX_NAME
+        waitFor(executeCommand(elastic, command))
+    except JsonHttpError as e:
+        logging.error $(e.name)
+        logging.error $(e.msg)
+        quit 1
 
-        initLogging(command.logLevel)
-        try:
-            processCommand command
-        except JsonHttpError as e:
-            echo "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-            logging.error $(e.name)
-            echo "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-            logging.error $(e.msg)
-            # error $e.msg
-            echo ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
-            quit 1
-    else:
-        import cligen
-        proc lsIndexes() =
-            echo "done"
-        dispatchMulti [lsIndexes]
-
+when isMainModule: main()
