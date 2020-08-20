@@ -14,6 +14,7 @@ type
         CommandBackup
         CommandRestore
         CommandMakeAlias
+        CommandWatch
     ConsoleCommand* = object
         outputFormat*: FormatKind
         host*: JsonHttpHost
@@ -46,6 +47,8 @@ type
         of CommandMakeAlias:
             aliasName*: string
             aliasIndex*: string
+        of CommandWatch:
+            discard
 
 proc parseFormatArg(value: string): FormatKind = parseEnum[FormatKind](value)
 defineArg[FormatKind](FormatArg, newFormatArg, "format", parseFormatArg,
@@ -121,6 +124,10 @@ let ALIAS_SPEC = (
     help: newHelpArg(),
 )
 
+let WATCH_SPEC = (
+    help: newHelpArg(),
+)
+
 let spec = (
     list: newCommandArg(
         @["ls", "list"], LS_SPEC, help = "List resources"),
@@ -140,6 +147,10 @@ let spec = (
         @["alias"],
         ALIAS_SPEC,
         help = "Make alias"),
+    watch: newCommandArg(
+        @["watch"],
+        WATCH_SPEC,
+        help = "Watch for new snapshots"),
     format: newFormatArg(@["--format"], help = "Display format"),
     repository: newStringArg(@["--repository", "-r"], help = "Backup/restore repository [$ELASTIC_REPOSITORY]", 
         default= "backup", 
@@ -159,7 +170,7 @@ let spec = (
 )
 
 proc failWithHelp*() = spec.parseOrQuit(prolog = "Elastic index sync",
-        command = "elasticindexsync", args = "--help")
+        command = paramStr(0), args = "--help")
 proc parseCommandLine*(): ConsoleCommand =
     spec.parseOrQuit(prolog = "Elastic index sync",
             command = "elasticindexsync")
@@ -201,6 +212,8 @@ proc parseCommandLine*(): ConsoleCommand =
             aliasName: ALIAS_SPEC.alias.value,
             aliasIndex: ALIAS_SPEC.index.value,
             wait: RESTORE_SPEC.wait.count > 0)
+    elif spec.watch.seen:
+        result = ConsoleCommand(kind:CommandKind.CommandWatch)
     result.outputFormat = spec.format.value
     result.host = newJsonHost(host = spec.elasticHost.value,
             user = spec.elasticUser.value,

@@ -56,6 +56,9 @@ proc executeCommand(elastic: ElasticClient, command: ConsoleCommand) : Future[vo
     of CommandMakeAlias: 
         await elastic.makeAlias(command.aliasName, command.aliasIndex)
         warn &"Alias {command.aliasName} now points to {command.aliasIndex}"
+    of CommandWatch: 
+        logging.error "Unknown command"
+        failWithHelp()
     of CommandUnknown: 
         logging.error "Unknown command"
         failWithHelp()
