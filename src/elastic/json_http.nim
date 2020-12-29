@@ -37,7 +37,7 @@ proc request(host: JsonHttpHost, uri: string, httpMethod: HttpMethod,
     try:
         let
             absoluteUri = host.getUri(uri)
-            headers = newHttpHeaders({"Accept": "application/json"})
+            headers = newHttpHeaders({"Accept": "application/json", "Content-Type": "application/json"})
             http = newAsyncHttpClient()
         if host.hasAuth():
             headers.add("Authorization", &"Basic {host.auth()}")
