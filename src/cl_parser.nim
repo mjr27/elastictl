@@ -61,7 +61,7 @@ let LS_INDICES_SPEC = (
 )
 
 let LS_SNAPSHOTS_SPEC = (
-    repository: newStringArg(@["-r", "--repository"], env = "ELASTIC_REPOSITORY",
+    repository: newStringArg(@["-r"], env = "ELASTIC_REPOSITORY",
     help = "Repository [$ELASTIC_REPOSITORY]", default = "backup"),
         help: newHelpArg(),
 )
